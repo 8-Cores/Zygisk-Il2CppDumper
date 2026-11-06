@@ -9,6 +9,7 @@
 #include <sstream>
 #include <fstream>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <ctime>
 #include "xdl.h"
 #include "log.h"
@@ -21,92 +22,81 @@
 
 static uint64_t il2cpp_base = 0;
 
-struct TargetClass {
-    std::string class_name;
-    std::vector<std::string> fields;
+// قائمة مستهدفة مدمجة (Hardcoded) لضمان حجم صغير دائماً حتى لو فشل قراءة الملف
+static const char* DEFAULT_TARGETS[] = {
+    "Player", "MatchGame", "JMAGGLCNGIG", "GameFacade", "CameraControllerBase",
+    "AttackableEntity", "ReplicationEntity", "PlayerAttributes", "HBIBDMMOOOK",
+    "WeaponGunFeelProfileData", "WeaponRecoil", "CGKJLKPMGDJ", "GameSettingData",
+    "UIModelRole", "UGCAttachmentRepItem", "UIModelUser", "UIHudPreparationTimerController",
+    "UIModelGroup", "UIFrontEndScene", "UIModelMatch", "UIHudReplayMatchIDController",
+    "MobileReplayManager", "EventLogger", "UIHudUserIDController", nullptr
 };
 
-static std::vector<TargetClass> g_targets;
-static bool g_full_dump = false;
+static std::vector<std::string> g_targets;
+static bool g_targets_loaded = false;
 
-static void load_input_config(const char* outDir) {
+static void ensure_no_backup_dir(const char* game_data_dir) {
+    std::string nb_dir = std::string(game_data_dir) + "/no_backup";
+    mkdir(nb_dir.c_str(), 0755);
+}
+
+static void load_targets(const char* game_data_dir) {
     g_targets.clear();
-    g_full_dump = false;
-    
-    // المسار الصحيح داخل مجلد ملفات اللعبة
-    std::string path = std::string(outDir) + "/files/input.json";
-    FILE* f = fopen(path.c_str(), "r");
-    if (!f) {
-        LOGI("input.json not found at %s. Doing FULL dump.", path.c_str());
-        g_full_dump = true;
-        return;
+    // إضافة القائمة المدمجة أولاً كضمان
+    for (int i = 0; DEFAULT_TARGETS[i] != nullptr; i++) {
+        g_targets.push_back(DEFAULT_TARGETS[i]);
     }
     
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    
-    if (size <= 0 || size > 1024 * 1024) {
-        fclose(f);
-        g_full_dump = true;
-        return;
-    }
-    
-    char* buf = (char*)malloc(size + 1);
-    if (!buf) { fclose(f); g_full_dump = true; return; }
-    
-    size_t rd = fread(buf, 1, size, f);
-    fclose(f);
-    buf[rd] = '\0';
-    
-    // محلل JSON خفيف جداً (لا يحتاج مكتبات خارجية)
-    bool in_classes_array = false;
-    bool in_string = false;
-    std::string current;
-    bool saw_classes_key = false;
-    
-    for (size_t i = 0; i < rd; i++) {
-        char c = buf[i];
-        if (c == '"') {
-            if (in_string) {
-                if (in_classes_array && !current.empty()) {
-                    g_targets.push_back({current, {}});
-                } else if (!in_classes_array && current == "classes") {
-                    saw_classes_key = true;
+    // محاولة قراءة input.json للإضافات (اختياري)
+    std::string json_path = std::string(game_data_dir) + "/no_backup/input.json";
+    FILE* f = fopen(json_path.c_str(), "r");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (size > 0 && size < 1024 * 1024) {
+            char* buf = (char*)malloc(size + 1);
+            size_t rd = fread(buf, 1, size, f);
+            buf[rd] = '\0';
+            
+            // محلل بسيط جداً يبحث عن السلاسل النصية بين علامات التنصيص بعد "classes"
+            bool in_classes = false;
+            bool in_string = false;
+            std::string current;
+            for (size_t i = 0; i < rd; i++) {
+                if (buf[i] == '"') {
+                    if (in_string) {
+                        if (in_classes && !current.empty()) {
+                            // تجنب التكرار
+                            bool exists = false;
+                            for (const auto& t : g_targets) { if (t == current) { exists = true; break; } }
+                            if (!exists) g_targets.push_back(current);
+                        } else if (current == "classes") {
+                            in_classes = true;
+                        }
+                        current.clear();
+                        in_string = false;
+                    } else {
+                        in_string = true;
+                    }
+                } else if (in_string) {
+                    current += buf[i];
+                } else if (buf[i] == ']') {
+                    in_classes = false;
                 }
-                current.clear();
-                in_string = false;
-            } else {
-                in_string = true;
             }
-        } else if (in_string) {
-            current += c;
-        } else if (c == '[') {
-            if (saw_classes_key || current.empty()) in_classes_array = true;
-            current.clear();
-        } else if (c == ']') {
-            in_classes_array = false;
-            saw_classes_key = false;
-            current.clear();
-        } else if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != ',') {
-            if (!in_classes_array) current += c;
+            free(buf);
         }
+        fclose(f);
     }
-    free(buf);
-    
-    if (g_targets.empty()) {
-        LOGI("input.json empty or invalid. Doing FULL dump.");
-        g_full_dump = true;
-    } else {
-        LOGI("Loaded %zu target classes from input.json", g_targets.size());
-    }
+    g_targets_loaded = true;
+    LOGI("Loaded %zu target classes (Hardcoded + JSON)", g_targets.size());
 }
 
 static bool is_target_class(const char* class_name) {
-    if (g_full_dump) return true;
-    if (!class_name) return false;
+    if (!class_name || !g_targets_loaded) return false;
     for (const auto& t : g_targets) {
-        if (t.class_name == class_name) return true;
+        if (t == class_name) return true;
     }
     return false;
 }
@@ -261,7 +251,10 @@ void il2cpp_api_init(void *handle) {
 
 void il2cpp_dump(const char *outDir) {
     LOGI("dumping...");
-    load_input_config(outDir);
+    
+    // إنشاء مجلد no_backup إذا لم يكن موجوداً
+    ensure_no_backup_dir(outDir);
+    load_targets(outDir);
     
     if (!il2cpp_domain_get || !il2cpp_domain_get_assemblies ||
         !il2cpp_assembly_get_image || !il2cpp_image_get_name) {
@@ -281,8 +274,8 @@ void il2cpp_dump(const char *outDir) {
         return;
     }
     
-    // مسار الإخراج داخل مجلد ملفات اللعبة
-    auto outPath = std::string(outDir).append("/files/output.cs");
+    // المسار الجديد الآمن
+    auto outPath = std::string(outDir).append("/no_backup/output.cs");
     FILE* outFile = fopen(outPath.c_str(), "w");
     if (!outFile) {
         LOGE("failed to open %s", outPath.c_str());
@@ -291,11 +284,11 @@ void il2cpp_dump(const char *outDir) {
     
     // كتابة الميتاداتا
     fprintf(outFile, "// ═══════════════════════════════════════════════════════════\n");
-    fprintf(outFile, "// FIREHAWK TARGETED DUMP\n");
+    fprintf(outFile, "// FIREHAWK TARGETED DUMP (STRICT MODE)\n");
     fprintf(outFile, "// Generated: %ld\n", (long)time(nullptr));
     fprintf(outFile, "// PID: %d\n", (int)getpid());
     fprintf(outFile, "// PACKAGE: com.dts.freefiremax\n");
-    fprintf(outFile, "// MODE: %s\n", g_full_dump ? "FULL" : "TARGETED");
+    fprintf(outFile, "// TARGETS_COUNT: %zu\n", g_targets.size());
     fprintf(outFile, "// ═══════════════════════════════════════════════════════════\n\n");
     
     for (int i = 0; i < (int)size; ++i) {
@@ -310,7 +303,7 @@ void il2cpp_dump(const char *outDir) {
         return;
     }
     
-    LOGI("Enumerating classes...");
+    LOGI("Enumerating classes (STRICT FILTER)...");
     int skipped = 0, dumped = 0;
     
     for (int i = 0; i < (int)size; ++i) {
@@ -321,9 +314,8 @@ void il2cpp_dump(const char *outDir) {
             auto klass = il2cpp_image_get_class(image, j);
             if (!klass) { ++skipped; continue; }
             
-            // الإصلاح الحاسم هنا: استخدام const_cast
             const char* class_name = il2cpp_class_get_name(const_cast<Il2CppClass*>(klass));
-            if (!is_target_class(class_name)) continue;
+            if (!is_target_class(class_name)) continue; // الفلتر الصارم
             
             auto type = il2cpp_class_get_type(const_cast<Il2CppClass*>(klass));
             if (!type) { ++skipped; continue; }
