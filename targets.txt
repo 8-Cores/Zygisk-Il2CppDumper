@@ -1,0 +1,12 @@
+# FireHawk Targeted Classes
+# Format: ClassName|Field1,Field2,Field3
+MatchGame|m_Match,m_ReplicationEntitis,MHJCLOPOBAA,NAIDFCCKEBL
+Player|OriginalNickName,ActiveUISightingWeapon,FollowCamera,BKEPAKCAGNJ,IODLOCEJIOK,GGJOLDEEIEN,MainCameraTransform,OIGNBBMOFDP,<AHDLLHMLNFI>k__BackingField,FDMIEDDNCEC,IsClientBot,BANPEGJEAKE
+AttackableEntity|<AONPKGBGHHI>k__BackingField,CGJLEBOGBNP
+PlayerAttributes|ShootNoReload,BuffWeaponReloadScale,BuffWeaponAmmoClip,GrenadeThrowSpeedScale,CILIDJHLLJA
+CameraControllerBase|AFMGCAELKBD,DBFAGHGHFKD
+HBIBDMMOOOK|LJIGAGEAMNP,AFLGAPPILEH
+WeaponGunFeelProfileData|enableVisualRecoil
+CGKJLKPMGDJ|HPCOJHGFEEG,DOJDNHCGFGK,EKPLMDDKOGB,HLDECMJFKJK,CFIPDNFBKHK
+GameFacade|
+ReplicationEntity|m_PRIDataPool

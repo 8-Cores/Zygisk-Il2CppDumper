@@ -1,7 +1,3 @@
-//
-// Created by Perfare on 2020/7/4.
-//
-
 #include "hack.h"
 #include "il2cpp_dump.h"
 #include "log.h"
@@ -23,7 +19,6 @@ void hack_start(const char *game_data_dir) {
         void *handle = xdl_open("libil2cpp.so", 0);
         if (handle) {
             load = true;
-    load_config(game_data_dir);
             il2cpp_api_init(handle);
             il2cpp_dump(game_data_dir);
             break;
@@ -31,7 +26,6 @@ void hack_start(const char *game_data_dir) {
             sleep(1);
         }
     }
-    if (!load) {
         LOGI("libil2cpp.so not found in thread %d", gettid());
     }
 }
@@ -47,6 +41,10 @@ std::string GetLibDir(JavaVM *vms) {
         if (currentApplicationId) {
             jobject application = env->CallStaticObjectMethod(activity_thread_clz,
                                                               currentApplicationId);
+            if (application == nullptr) {
+                LOGE("currentApplication returned null");
+                return {};
+            }
             jclass application_clazz = env->GetObjectClass(application);
             if (application_clazz) {
                 jmethodID get_application_info = env->GetMethodID(application_clazz,
@@ -93,11 +91,8 @@ static std::string GetNativeBridgeLibrary() {
 struct NativeBridgeCallbacks {
     uint32_t version;
     void *initialize;
-
     void *(*loadLibrary)(const char *libpath, int flag);
-
     void *(*getTrampoline)(void *handle, const char *name, const char *shorty, uint32_t len);
-
     void *isSupported;
     void *getAppEnv;
     void *isCompatibleWith;
@@ -108,26 +103,60 @@ struct NativeBridgeCallbacks {
     void *initAnonymousNamespace;
     void *createNamespace;
     void *linkNamespaces;
-
     void *(*loadLibraryExt)(const char *libpath, int flag, void *ns);
 };
 
-bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size_t length) {
-    //TODO 等待houdini初始化
-    sleep(5);
-
-    auto libart = dlopen("libart.so", RTLD_NOW);
-    auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM **, jsize, jsize *)) dlsym(libart,
-                                                                             "JNI_GetCreatedJavaVMs");
+static JavaVM *WaitForRuntime(void *libart) {
+    auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM **, jsize, jsize *)) dlsym(
+            libart, "JNI_GetCreatedJavaVMs");
     LOGI("JNI_GetCreatedJavaVMs %p", JNI_GetCreatedJavaVMs);
-    JavaVM *vms_buf[1];
-    JavaVM *vms;
-    jsize num_vms;
-    jint status = JNI_GetCreatedJavaVMs(vms_buf, 1, &num_vms);
-    if (status == JNI_OK && num_vms > 0) {
-        vms = vms_buf[0];
-    } else {
-        LOGE("GetCreatedJavaVMs error");
+        LOGE("dlsym JNI_GetCreatedJavaVMs failed");
+        return nullptr;
+    }
+    for (int i = 0; i < 300; i++) {
+        JavaVM *vms_buf[1];
+        jsize num_vms = 0;
+        if (JNI_GetCreatedJavaVMs(vms_buf, 1, &num_vms) == JNI_OK && num_vms > 0) {
+            JavaVM *vms = vms_buf[0];
+            JNIEnv *env = nullptr;
+            if (vms->AttachCurrentThread(&env, nullptr) == JNI_OK && env != nullptr) {
+                bool ready = false;
+                jclass activity_thread_clz = env->FindClass("android/app/ActivityThread");
+                if (activity_thread_clz != nullptr) {
+                    jmethodID currentApplicationId = env->GetStaticMethodID(
+                            activity_thread_clz, "currentApplication",
+                            "()Landroid/app/Application;");
+                    if (currentApplicationId) {
+                        jobject application = env->CallStaticObjectMethod(
+                                activity_thread_clz, currentApplicationId);
+                        if (application != nullptr) {
+                            ready = true;
+                            env->DeleteLocalRef(application);
+                        }
+                    }
+                    env->DeleteLocalRef(activity_thread_clz);
+                }
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                }
+                if (ready) {
+                    return vms;
+                }
+            }
+        }
+        usleep(100 * 1000);
+    }
+    LOGE("timed out waiting for runtime/application");
+    return nullptr;
+}
+
+bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size_t length) {
+    auto libart = dlopen("libart.so", RTLD_NOW);
+        LOGE("dlopen libart.so failed");
+        return false;
+    }
+    JavaVM *vms = WaitForRuntime(libart);
+        LOGE("runtime/application not ready");
         return false;
     }
 
@@ -143,7 +172,6 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     }
 
     auto nb = dlopen("libhoudini.so", RTLD_NOW);
-    if (!nb) {
         auto native_bridge = GetNativeBridgeLibrary();
         LOGI("native bridge: %s", native_bridge.data());
         nb = dlopen(native_bridge.data(), RTLD_NOW);
@@ -156,9 +184,25 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
             LOGI("NativeBridgeLoadLibraryExt %p", callbacks->loadLibraryExt);
             LOGI("NativeBridgeGetTrampoline %p", callbacks->getTrampoline);
 
-            int fd = syscall(__NR_memfd_create, "anon", MFD_CLOEXEC);
-            ftruncate(fd, (off_t) length);
+            int fd = (int) syscall(__NR_memfd_create, "anon", MFD_CLOEXEC);
+            if (fd == -1) {
+                LOGE("memfd_create failed");
+                munmap(data, length);
+                return false;
+            }
+            if (ftruncate(fd, (off_t) length) == -1) {
+                LOGE("ftruncate failed");
+                close(fd);
+                munmap(data, length);
+                return false;
+            }
             void *mem = mmap(nullptr, length, PROT_WRITE, MAP_SHARED, fd, 0);
+            if (mem == MAP_FAILED) {
+                LOGE("mmap memfd failed");
+                close(fd);
+                munmap(data, length);
+                return false;
+            }
             memcpy(mem, data, length);
             munmap(mem, length);
             munmap(data, length);
@@ -187,14 +231,12 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     return false;
 }
 
-void load_config(const char* module_dir);
 void hack_prepare(const char *game_data_dir, void *data, size_t length) {
     LOGI("hack thread: %d", gettid());
     int api_level = android_get_device_api_level();
     LOGI("api level: %d", api_level);
 
 #if defined(__i386__) || defined(__x86_64__)
-    if (!NativeBridgeLoad(game_data_dir, api_level, data, length)) {
 #endif
         hack_start(game_data_dir);
 #if defined(__i386__) || defined(__x86_64__)
