@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.4.1)
+project(il2cppdumper)
 
 aux_source_directory(xdl xdl-src)
 add_library(il2cppdumper SHARED
