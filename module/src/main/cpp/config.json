@@ -1,0 +1,49 @@
+{
+  "target_classes": [
+    {
+      "name": "MatchGame",
+      "aliases": ["JMAGGLCNGIG"],
+      "fields": ["m_Match", "m_ReplicationEntitis", "MHJCLOPOBAA", "NAIDFCCKEBL"]
+    },
+    {
+      "name": "Player",
+      "aliases": [],
+      "fields": ["OriginalNickName", "ActiveUISightingWeapon", "FollowCamera", "BKEPAKCAGNJ", "IODLOCEJIOK", "GGJOLDEEIEN", "MainCameraTransform", "OIGNBBMOFDP", "<AHDLLHMLNFI>k__BackingField", "FDMIEDDNCEC", "IsClientBot", "BANPEGJEAKE"]
+    },
+    {
+      "name": "AttackableEntity",
+      "aliases": [],
+      "fields": ["<AONPKGBGHHI>k__BackingField", "CGJLEBOGBNP"]
+    },
+    {
+      "name": "PlayerAttributes",
+      "aliases": [],
+      "fields": ["ShootNoReload", "BuffWeaponReloadScale", "BuffWeaponAmmoClip", "GrenadeThrowSpeedScale", "CILIDJHLLJA"]
+    },
+    {
+      "name": "CameraControllerBase",
+      "aliases": [],
+      "fields": ["AFMGCAELKBD", "DBFAGHGHFKD"]
+    },
+    {
+      "name": "HBIBDMMOOOK",
+      "aliases": [],
+      "fields": ["LJIGAGEAMNP", "AFLGAPPILEH"]
+    },
+    {
+      "name": "WeaponGunFeelProfileData",
+      "aliases": ["WeaponRecoil"],
+      "fields": ["enableVisualRecoil"]
+    },
+    {
+      "name": "CGKJLKPMGDJ",
+      "aliases": [],
+      "fields": ["HPCOJHGFEEG", "DOJDNHCGFGK", "EKPLMDDKOGB", "HLDECMJFKJK", "CFIPDNFBKHK"]
+    }
+  ],
+  "dump_metadata": {
+    "include_pid": true,
+    "include_timestamp": true,
+    "include_package_name": true
+  }
+}

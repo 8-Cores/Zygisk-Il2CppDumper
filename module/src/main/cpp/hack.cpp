@@ -23,6 +23,7 @@ void hack_start(const char *game_data_dir) {
         void *handle = xdl_open("libil2cpp.so", 0);
         if (handle) {
             load = true;
+    load_config(game_data_dir);
             il2cpp_api_init(handle);
             il2cpp_dump(game_data_dir);
             break;
@@ -186,6 +187,7 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     return false;
 }
 
+void load_config(const char* module_dir);
 void hack_prepare(const char *game_data_dir, void *data, size_t length) {
     LOGI("hack thread: %d", gettid());
     int api_level = android_get_device_api_level();
